@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+  <style>
+    body { font-family: 'Roboto', sans-serif; background: #f5f7fa; margin:0; padding:0; }
+    .container { max-width: 700px; margin: 50px auto; background: #fff; border-radius:12px; box-shadow:0 10px 25px rgba(0,0,0,0.1); padding:30px; }
+    h2 { text-align:center; margin-bottom:20px; color:#333; }
+
+    .input-group { display:flex; gap:10px; margin-bottom:20px; }
+    #taskInput { flex:1; padding:12px; font-size:16px; border-radius:8px; border:1px solid #ccc; transition:all 0.2s; }
+    #taskInput:focus { border-color:#4CAF50; outline:none; box-shadow:0 0 5px rgba(76,175,80,0.5); }
+    .btn-add { background:#4CAF50; color:white; }
+    .btn-add:hover { background:#45a049; }
+
+    table { width:100%; border-collapse: collapse; }
+    th, td { padding:12px; text-align:left; }
+    th { background:#4CAF50; color:white; }
+    tr:nth-child(even) { background-color:#f2f2f2; }
+    tr:hover { background-color:#e8f5e9; transition: background 0.3s; }
+
+    .action-btn { background:none; border:none; cursor:pointer; font-size:16px; margin:0 5px; transition: transform 0.2s; }
+    .btn-edit { color:#FFA500; } /* orange */
+    .btn-delete { color:#E53935; } /* red */
+    .btn-toggle { color:#4CAF50; } /* green */
+    .action-btn:hover { transform:scale(1.2); }
+
+    .done { text-decoration:line-through; color:gray; }
+
+    .toast { position:fixed; bottom:20px; right:20px; background:#333; color:#fff; padding:12px 20px; border-radius:8px; opacity:0; pointer-events:none; transition: opacity 0.5s, transform 0.5s; z-index:9999; }
+    .toast.show { opacity:1; pointer-events:auto; transform:translateY(-20px); }
+
+    .loader { display:inline-block; width:16px; height:16px; border:2px solid #fff; border-top:2px solid #4CAF50; border-radius:50%; animation: spin 1s linear infinite; margin-left:10px; vertical-align:middle; }
+    @keyframes spin { 0% { transform:rotate(0deg); } 100% { transform:rotate(360deg); } }
+
+    input.edit-input { width: 100%; padding: 6px; font-size: 14px; border-radius:4px; border:1px solid #ccc; }
+
+    /* Progress Bar */
+    .progress-container { margin-bottom: 20px; background: #e0e0e0; border-radius: 20px; height: 20px; position: relative; overflow: hidden; }
+    .progress-bar { height: 100%; width: 0%; background: #4CAF50; border-radius: 20px; transition: width 0.5s ease; }
+    #progressText { text-align: right; font-size: 14px; margin-top: 5px; color: #333; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>ToDo List</h2>
+
+    <div class="input-group">
+      <input type="text" id="taskInput" placeholder="Enter new task...">
+      <button class="btn-add" onclick="addTask()">Add Task <i class="fa fa-plus"></i></button>
+    </div>
+
+    <div class="progress-container">
+      <div id="progressBar" class="progress-bar"></div>
+      <p id="progressText">0% Completed</p>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Task</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="taskList"></tbody>
+    </table>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const toast = document.getElementById('toast');
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2500);
+    }
+
+    function showLoader(button) {
+      const loader = document.createElement('span');
+      loader.className = 'loader';
+      button.disabled = true;
+      button.appendChild(loader);
+      return loader;
+    }
+
+    function hideLoader(button, loader) {
+      button.disabled = false;
+      loader.remove();
+    }
+
+    function loadTasks() {
+      google.script.run.withSuccessHandler(renderTasks).getTasks();
+    }
+
+    function renderTasks(tasks) {
+      const tbody = document.getElementById('taskList');
+      tbody.innerHTML = '';
+      tasks.forEach(task => {
+        const tr = document.createElement('tr');
+
+        const taskTd = document.createElement('td');
+        taskTd.textContent = task.task;
+        if(task.status === 'Done') taskTd.classList.add('done');
+
+        const statusTd = document.createElement('td');
+        statusTd.textContent = task.status;
+
+        const actionTd = document.createElement('td');
+        actionTd.innerHTML = `
+          <button class="action-btn btn-toggle" title="Toggle Status" onclick="toggleStatus('${task.id}', '${task.status}', this)"><i class="fa fa-check"></i></button>
+          <button class="action-btn btn-edit" title="Edit Task" onclick="editTask('${task.id}', this)"><i class="fa fa-pen"></i></button>
+          <button class="action-btn btn-delete" title="Delete Task" onclick="deleteTask('${task.id}', this)"><i class="fa fa-trash"></i></button>
+        `;
+
+        tr.appendChild(taskTd);
+        tr.appendChild(statusTd);
+        tr.appendChild(actionTd);
+        tbody.appendChild(tr);
+      });
+
+      updateProgress(tasks);
+    }
+
+    function updateProgress(tasks) {
+      const total = tasks.length;
+      const doneCount = tasks.filter(t => t.status === 'Done').length;
+      const percent = total === 0 ? 0 : Math.round((doneCount / total) * 100);
+
+      const progressBar = document.getElementById('progressBar');
+      const progressText = document.getElementById('progressText');
+
+      progressBar.style.width = percent + '%';
+      progressText.textContent = percent + '% Completed';
+    }
+
+    function addTask() {
+      const input = document.getElementById('taskInput');
+      const text = input.value.trim();
+      if(!text) return showToast("Task cannot be empty!");
+
+      const btn = event.target.closest('button');
+      const loader = showLoader(btn);
+
+      google.script.run.withSuccessHandler(() => {
+        loadTasks();
+        input.value = '';
+        showToast("Task added successfully!");
+        hideLoader(btn, loader);
+      }).addTask(text);
+    }
+
+    function toggleStatus(id, currentStatus, btn) {
+      const loader = showLoader(btn);
+      const newStatus = currentStatus === 'Pending' ? 'Done' : 'Pending';
+      google.script.run.withSuccessHandler(() => {
+        loadTasks();
+        showToast(`Task marked ${newStatus}`);
+        hideLoader(btn, loader);
+      }).updateTaskStatus(id, newStatus);
+    }
+
+    function deleteTask(id, btn) {
+      const loader = showLoader(btn);
+      google.script.run.withSuccessHandler(() => {
+        loadTasks();
+        showToast("Task deleted successfully!");
+        hideLoader(btn, loader);
+      }).deleteTask(id);
+    }
+
+    function editTask(id, btn) {
+      const tr = btn.closest('tr');
+      const td = tr.children[0];
+      const oldText = td.textContent;
+
+      td.innerHTML = `<input type="text" class="edit-input" value="${oldText}">`;
+      const input = td.querySelector('input');
+      input.focus();
+
+      input.addEventListener('keydown', function(e) {
+        if(e.key === 'Enter') {
+          const newText = input.value.trim();
+          if(!newText) return showToast("Task cannot be empty!");
+          const loader = showLoader(btn);
+
+          google.script.run.withSuccessHandler(() => {
+            loadTasks();
+            showToast("Task updated successfully!");
+            hideLoader(btn, loader);
+          }).updateTaskText(id, newText);
+        }
+        if(e.key === 'Escape') {
+          td.textContent = oldText;
+        }
+      });
+    }
+
+    loadTasks();
+  </script>
+</body>
+</html>
